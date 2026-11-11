@@ -1,0 +1,183 @@
+@import "tailwindcss";
+
+:root {
+  --font-display: "Playfair Display", Georgia, "Times New Roman", serif;
+  --font-sans: "Plus Jakarta Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --ng-maroon: #5e0b15;
+  --ng-maroon-dark: #3d050c;
+  --ng-crimson: #8b1524;
+  --ng-cream: #fdf7ec;
+  --ng-cream-warm: #f6ead4;
+  --ng-gold: #d4a143;
+  --ng-gold-light: #ecc572;
+  --ng-gold-dark: #a6741e;
+  --ng-ink: #2b1410;
+  --ng-muted: #664941;
+}
+
+html {
+  scroll-behavior: smooth;
+  overflow-x: clip;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  color: var(--ng-ink);
+  background-color: var(--ng-cream);
+  background-image: linear-gradient(
+      to bottom,
+      rgba(253, 247, 236, 0.72),
+      rgba(253, 247, 236, 0.68)
+    ),
+    url("/images/bg/royal-pattern-bg.png");
+  background-position: top center;
+  background-repeat: repeat-y;
+  background-size: 100% auto;
+  overflow-x: clip;
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (max-width: 767px) {
+  body {
+    background-size: 768px auto;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display), Georgia, serif;
+}
+
+.font-sans {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+}
+
+/* Fluid headings */
+.heading-hero {
+  font-size: clamp(2rem, 4.6vw, 4.25rem);
+  line-height: 1.08;
+}
+
+.heading-section {
+  font-size: clamp(1.625rem, 3.2vw, 2.75rem);
+  line-height: 1.15;
+}
+
+/* Smooth GPU-composited Hero Animations */
+@keyframes heroDesktopMotion {
+  0% {
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+  50% {
+    transform: scale(1.06) translate3d(-1.2%, -0.6%, 0);
+  }
+  100% {
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+}
+
+@keyframes heroMobileMotion {
+  0% {
+    transform: scale(1.02) translate3d(0, 0, 0);
+  }
+  50% {
+    transform: scale(1.09) translate3d(0, -1.2%, 0);
+  }
+  100% {
+    transform: scale(1.02) translate3d(0, 0, 0);
+  }
+}
+
+@keyframes subtleGlowPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.65;
+  }
+}
+
+.animate-hero-desktop {
+  animation: heroDesktopMotion 18s ease-in-out infinite;
+  will-change: transform;
+}
+
+.animate-hero-mobile {
+  animation: heroMobileMotion 16s ease-in-out infinite;
+  will-change: transform;
+}
+
+.animate-glow-pulse {
+  animation: subtleGlowPulse 5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .animate-hero-desktop,
+  .animate-hero-mobile,
+  .animate-glow-pulse {
+    animation: none !important;
+  }
+}
+
+/* Ornamental divider line */
+.ornate-line {
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(212, 161, 67, 0.85),
+    transparent
+  );
+}
+
+/* Premium Maroon Velvet Surface */
+.maroon-velvet {
+  background: radial-gradient(
+      circle at 20% 20%,
+      rgba(155, 27, 45, 0.65),
+      transparent 55%
+    ),
+    radial-gradient(
+      circle at 80% 80%,
+      rgba(212, 161, 67, 0.14),
+      transparent 45%
+    ),
+    linear-gradient(135deg, #4b0710 0%, #6d0e1b 50%, #43060d 100%);
+}
+
+/* Gold shimmer button */
+.btn-gold {
+  background: linear-gradient(135deg, #ecc572 0%, #d4a143 55%, #b88226 100%);
+  color: #36090e;
+  box-shadow: 0 6px 20px rgba(180, 125, 34, 0.32);
+}
+.btn-gold:hover {
+  background: linear-gradient(135deg, #f4d388 0%, #dfa94a 55%, #c58d2c 100%);
+}
+
+.btn-maroon {
+  background: linear-gradient(135deg, #7c1220 0%, #580913 100%);
+  color: #fdf7ec;
+  box-shadow: 0 6px 18px rgba(94, 11, 21, 0.28);
+}
+.btn-maroon:hover {
+  background: linear-gradient(135deg, #911728 0%, #6b0d19 100%);
+}
+
+/* Custom scrollbar (subtle) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f5e9d3;
+}
+::-webkit-scrollbar-thumb {
+  background: #a47634;
+  border-radius: 9999px;
+}
