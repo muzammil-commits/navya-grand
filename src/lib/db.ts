@@ -1,7 +1,7 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { DatabaseSync } from "node:sqlite";
 import {
   INITIAL_CATEGORIES,
   INITIAL_PRODUCTS,
@@ -11,21 +11,59 @@ import type {
   BanquetEnquiry,
   Category,
   Order,
-  OrderItemSnapshot,
   OrderStatus,
-  PaymentMethod,
   PaymentStatus,
   Product,
-  ProductVariant,
   SiteContent,
   TableReservation,
 } from "./types";
 
-const DB_DIR = path.join(process.cwd(), "data");
-const DB_PATH = path.join(DB_DIR, "navya-grand.db");
+export interface AdminUserRecord {
+  id: number;
+  username: string;
+  passwordHash: string;
+  fullName: string;
+  role: string;
+  createdAt: string;
+}
 
-let dbInstance: DatabaseSync | null = null;
-let initialized = false;
+export interface AdminSessionRecord {
+  tokenHash: string;
+  userId: number;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface ContactMessageRecord {
+  id: number;
+  name: string;
+  phone: string;
+  email: string;
+  subject: string;
+  message: string;
+  createdAt: string;
+}
+
+interface StoreData {
+  nextIds: {
+    category: number;
+    product: number;
+    order: number;
+    reservation: number;
+    enquiry: number;
+    contact: number;
+    adminUser: number;
+  };
+  categories: Category[];
+  products: Product[];
+  orders: Order[];
+  reservations: TableReservation[];
+  enquiries: BanquetEnquiry[];
+  contactMessages: ContactMessageRecord[];
+  siteContent: SiteContent;
+  adminUsers: AdminUserRecord[];
+  adminSessions: AdminSessionRecord[];
+}
 
 function hashInitialPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -33,469 +71,445 @@ function hashInitialPassword(password: string): string {
   return `${salt}:${derived}`;
 }
 
-export function getDb(): DatabaseSync {
-  if (!dbInstance) {
-    if (!fs.existsSync(DB_DIR)) {
-      fs.mkdirSync(DB_DIR, { recursive: true });
+function resolveStoreFilePath(): string | null {
+  const candidates = process.env.VERCEL
+    ? [path.join(os.tmpdir(), "navya-grand-data")]
+    : [
+        path.join(process.cwd(), "data"),
+        path.join(os.tmpdir(), "navya-grand-data"),
+      ];
+
+  for (const dir of candidates) {
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const probe = path.join(dir, ".write-test");
+      fs.writeFileSync(probe, "ok");
+      fs.unlinkSync(probe);
+      return path.join(dir, "navya-grand.store.json");
+    } catch {
+      // Directory is read-only or unavailable; try next candidate
     }
-    dbInstance = new DatabaseSync(DB_PATH);
-    dbInstance.exec("PRAGMA journal_mode = WAL;");
-    dbInstance.exec("PRAGMA foreign_keys = ON;");
   }
-
-  if (!initialized) {
-    initializeSchema(dbInstance);
-    seedIfEmpty(dbInstance);
-    initialized = true;
-  }
-
-  return dbInstance;
+  return null;
 }
 
-function initializeSchema(db: DatabaseSync): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS categories (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      slug TEXT NOT NULL UNIQUE,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      image_url TEXT NOT NULL DEFAULT '',
-      sort_order INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      slug TEXT NOT NULL UNIQUE,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      price REAL NOT NULL,
-      category_slug TEXT NOT NULL,
-      veg_type TEXT NOT NULL CHECK (veg_type IN ('veg', 'non-veg')),
-      image_url TEXT NOT NULL DEFAULT '',
-      is_available INTEGER NOT NULL DEFAULT 1,
-      is_signature INTEGER NOT NULL DEFAULT 0,
-      variants_json TEXT NOT NULL DEFAULT '[]',
-      spice_level TEXT DEFAULT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS orders (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      order_ref TEXT NOT NULL UNIQUE,
-      customer_name TEXT NOT NULL,
-      phone TEXT NOT NULL,
-      email TEXT NOT NULL DEFAULT '',
-      order_type TEXT NOT NULL CHECK (order_type IN ('delivery', 'takeaway')),
-      address TEXT NOT NULL DEFAULT '',
-      landmark TEXT NOT NULL DEFAULT '',
-      city TEXT NOT NULL DEFAULT 'Guntur',
-      pincode TEXT NOT NULL DEFAULT '',
-      instructions TEXT NOT NULL DEFAULT '',
-      items_json TEXT NOT NULL,
-      subtotal REAL NOT NULL,
-      delivery_charge REAL NOT NULL DEFAULT 0,
-      tax_amount REAL NOT NULL DEFAULT 0,
-      discount_amount REAL NOT NULL DEFAULT 0,
-      total_amount REAL NOT NULL,
-      payment_method TEXT NOT NULL,
-      payment_status TEXT NOT NULL,
-      payment_ref TEXT NOT NULL DEFAULT '',
-      order_status TEXT NOT NULL,
-      estimated_time TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS table_reservations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      reservation_ref TEXT NOT NULL UNIQUE,
-      customer_name TEXT NOT NULL,
-      phone TEXT NOT NULL,
-      email TEXT NOT NULL DEFAULT '',
-      reservation_date TEXT NOT NULL,
-      reservation_time TEXT NOT NULL,
-      guest_count INTEGER NOT NULL,
-      special_requests TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'Pending',
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS banquet_enquiries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      enquiry_ref TEXT NOT NULL UNIQUE,
-      customer_name TEXT NOT NULL,
-      phone TEXT NOT NULL,
-      email TEXT NOT NULL DEFAULT '',
-      event_type TEXT NOT NULL,
-      event_date TEXT NOT NULL,
-      guest_count INTEGER NOT NULL,
-      requirements TEXT NOT NULL DEFAULT '',
-      message TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'New',
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS contact_messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      phone TEXT NOT NULL,
-      email TEXT NOT NULL DEFAULT '',
-      subject TEXT NOT NULL DEFAULT '',
-      message TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS site_content (
-      key TEXT PRIMARY KEY,
-      value_json TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS admin_users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      full_name TEXT NOT NULL DEFAULT 'Navya Grand Admin',
-      role TEXT NOT NULL DEFAULT 'admin',
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS admin_sessions (
-      token_hash TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      expires_at TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE CASCADE
-    );
-  `);
-}
-
-function seedIfEmpty(db: DatabaseSync): void {
+function createSeedStore(): StoreData {
   const now = new Date().toISOString();
+  const defaultUser = process.env.ADMIN_DEFAULT_USERNAME || "admin";
+  const defaultPass =
+    process.env.ADMIN_DEFAULT_PASSWORD || "NavyaGrand@2026!";
 
-  const catCount = (
-    db.prepare("SELECT COUNT(*) as count FROM categories").get() as {
-      count: number;
-    }
-  ).count;
+  const categories: Category[] = INITIAL_CATEGORIES.map((c, idx) => ({
+    ...c,
+    id: idx + 1,
+  }));
 
-  if (catCount === 0) {
-    const insertCat = db.prepare(
-      "INSERT INTO categories (slug, name, description, image_url, sort_order) VALUES (?, ?, ?, ?, ?)"
-    );
-    for (const c of INITIAL_CATEGORIES) {
-      insertCat.run(c.slug, c.name, c.description, c.imageUrl, c.sortOrder);
-    }
-  }
+  const products: Product[] = INITIAL_PRODUCTS.map((p, idx) => ({
+    ...p,
+    id: idx + 1,
+    createdAt: now,
+    updatedAt: now,
+  }));
 
-  const prodCount = (
-    db.prepare("SELECT COUNT(*) as count FROM products").get() as {
-      count: number;
-    }
-  ).count;
-
-  if (prodCount === 0) {
-    const insertProd = db.prepare(
-      `INSERT INTO products (
-        slug, name, description, price, category_slug, veg_type,
-        image_url, is_available, is_signature, variants_json, spice_level,
-        sort_order, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-    for (const p of INITIAL_PRODUCTS) {
-      insertProd.run(
-        p.slug,
-        p.name,
-        p.description,
-        p.price,
-        p.categorySlug,
-        p.vegType,
-        p.imageUrl,
-        p.isAvailable ? 1 : 0,
-        p.isSignature ? 1 : 0,
-        JSON.stringify(p.variants),
-        p.spiceLevel,
-        p.sortOrder,
-        now,
-        now
-      );
-    }
-  }
-
-  const contentCount = (
-    db.prepare("SELECT COUNT(*) as count FROM site_content").get() as {
-      count: number;
-    }
-  ).count;
-
-  if (contentCount === 0) {
-    const insertContent = db.prepare(
-      "INSERT INTO site_content (key, value_json, updated_at) VALUES (?, ?, ?)"
-    );
-    const entries: [keyof SiteContent, unknown][] = [
-      ["heroSlides", INITIAL_SITE_CONTENT.heroSlides],
-      ["services", INITIAL_SITE_CONTENT.services],
-      ["about", INITIAL_SITE_CONTENT.about],
-      ["testimonials", INITIAL_SITE_CONTENT.testimonials],
-      ["contact", INITIAL_SITE_CONTENT.contact],
-      ["deliveryConfig", INITIAL_SITE_CONTENT.deliveryConfig],
-    ];
-    for (const [k, v] of entries) {
-      insertContent.run(k, JSON.stringify(v), now);
-    }
-  }
-
-  const adminCount = (
-    db.prepare("SELECT COUNT(*) as count FROM admin_users").get() as {
-      count: number;
-    }
-  ).count;
-
-  if (adminCount === 0) {
-    const defaultUser = process.env.ADMIN_DEFAULT_USERNAME || "admin";
-    const defaultPass =
-      process.env.ADMIN_DEFAULT_PASSWORD || "NavyaGrand@2026!";
-    db.prepare(
-      "INSERT INTO admin_users (username, password_hash, full_name, role, created_at) VALUES (?, ?, ?, ?, ?)"
-    ).run(
-      defaultUser,
-      hashInitialPassword(defaultPass),
-      "Navya Grand Manager",
-      "superadmin",
-      now
-    );
-  }
-}
-
-function mapCategory(row: Record<string, unknown>): Category {
   return {
-    id: Number(row.id),
-    slug: String(row.slug),
-    name: String(row.name),
-    description: String(row.description || ""),
-    imageUrl: String(row.image_url || ""),
-    sortOrder: Number(row.sort_order || 0),
+    nextIds: {
+      category: categories.length + 1,
+      product: products.length + 1,
+      order: 1,
+      reservation: 1,
+      enquiry: 1,
+      contact: 1,
+      adminUser: 2,
+    },
+    categories,
+    products,
+    orders: [],
+    reservations: [],
+    enquiries: [],
+    contactMessages: [],
+    siteContent: {
+      heroSlides: INITIAL_SITE_CONTENT.heroSlides,
+      services: INITIAL_SITE_CONTENT.services,
+      about: INITIAL_SITE_CONTENT.about,
+      testimonials: INITIAL_SITE_CONTENT.testimonials,
+      contact: INITIAL_SITE_CONTENT.contact,
+      deliveryConfig: {
+        ...INITIAL_SITE_CONTENT.deliveryConfig,
+        gatewayConfigured: Boolean(
+          process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
+        ),
+      },
+    },
+    adminUsers: [
+      {
+        id: 1,
+        username: defaultUser,
+        passwordHash: hashInitialPassword(defaultPass),
+        fullName: "Navya Grand Manager",
+        role: "superadmin",
+        createdAt: now,
+      },
+    ],
+    adminSessions: [],
   };
 }
 
-function mapProduct(row: Record<string, unknown>): Product {
-  let variants: ProductVariant[] = [];
+let memoryStore: StoreData | null = null;
+let resolvedFilePath: string | null | undefined = undefined;
+
+function getStore(): StoreData {
+  if (resolvedFilePath === undefined) {
+    resolvedFilePath = resolveStoreFilePath();
+  }
+
+  if (!memoryStore) {
+    if (resolvedFilePath && fs.existsSync(resolvedFilePath)) {
+      try {
+        const raw = fs.readFileSync(resolvedFilePath, "utf8");
+        const parsed = JSON.parse(raw) as StoreData;
+        if (
+          parsed &&
+          Array.isArray(parsed.categories) &&
+          Array.isArray(parsed.products) &&
+          parsed.siteContent
+        ) {
+          memoryStore = parsed;
+        }
+      } catch (err) {
+        console.error("Failed to parse store file, re-seeding:", err);
+      }
+    }
+
+    if (!memoryStore) {
+      memoryStore = createSeedStore();
+      persistStore(memoryStore);
+    }
+  }
+
+  return memoryStore;
+}
+
+function persistStore(store: StoreData): void {
+  if (resolvedFilePath === undefined) {
+    resolvedFilePath = resolveStoreFilePath();
+  }
+  if (!resolvedFilePath) return;
+
   try {
-    variants = JSON.parse(String(row.variants_json || "[]"));
-  } catch {
-    variants = [];
+    const tmpFile = `${resolvedFilePath}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(store), "utf8");
+    fs.renameSync(tmpFile, resolvedFilePath);
+  } catch (err) {
+    console.error("Store persistence warning:", err);
   }
-  return {
-    id: Number(row.id),
-    slug: String(row.slug),
-    name: String(row.name),
-    description: String(row.description || ""),
-    price: Number(row.price),
-    categorySlug: String(row.category_slug),
-    vegType: row.veg_type === "veg" ? "veg" : "non-veg",
-    imageUrl: String(row.image_url || ""),
-    isAvailable: Boolean(row.is_available),
-    isSignature: Boolean(row.is_signature),
-    variants,
-    spiceLevel: (row.spice_level as Product["spiceLevel"]) || null,
-    sortOrder: Number(row.sort_order || 0),
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-  };
-}
-
-function mapOrder(row: Record<string, unknown>): Order {
-  let items: OrderItemSnapshot[] = [];
-  try {
-    items = JSON.parse(String(row.items_json || "[]"));
-  } catch {
-    items = [];
-  }
-  return {
-    id: Number(row.id),
-    orderRef: String(row.order_ref),
-    customerName: String(row.customer_name),
-    phone: String(row.phone),
-    email: String(row.email || ""),
-    orderType: row.order_type === "takeaway" ? "takeaway" : "delivery",
-    address: String(row.address || ""),
-    landmark: String(row.landmark || ""),
-    city: String(row.city || "Guntur"),
-    pincode: String(row.pincode || ""),
-    instructions: String(row.instructions || ""),
-    items,
-    subtotal: Number(row.subtotal),
-    deliveryCharge: Number(row.delivery_charge),
-    taxAmount: Number(row.tax_amount),
-    discountAmount: Number(row.discount_amount),
-    totalAmount: Number(row.total_amount),
-    paymentMethod: String(row.payment_method) as PaymentMethod,
-    paymentStatus: String(row.payment_status) as PaymentStatus,
-    paymentRef: String(row.payment_ref || ""),
-    orderStatus: String(row.order_status) as OrderStatus,
-    estimatedTime: String(row.estimated_time || ""),
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-  };
-}
-
-function mapReservation(row: Record<string, unknown>): TableReservation {
-  return {
-    id: Number(row.id),
-    reservationRef: String(row.reservation_ref),
-    customerName: String(row.customer_name),
-    phone: String(row.phone),
-    email: String(row.email || ""),
-    reservationDate: String(row.reservation_date),
-    reservationTime: String(row.reservation_time),
-    guestCount: Number(row.guest_count),
-    specialRequests: String(row.special_requests || ""),
-    status: String(row.status) as TableReservation["status"],
-    createdAt: String(row.created_at),
-  };
-}
-
-function mapEnquiry(row: Record<string, unknown>): BanquetEnquiry {
-  return {
-    id: Number(row.id),
-    enquiryRef: String(row.enquiry_ref),
-    customerName: String(row.customer_name),
-    phone: String(row.phone),
-    email: String(row.email || ""),
-    eventType: String(row.event_type),
-    eventDate: String(row.event_date),
-    guestCount: Number(row.guest_count),
-    requirements: String(row.requirements || ""),
-    message: String(row.message || ""),
-    status: String(row.status) as BanquetEnquiry["status"],
-    createdAt: String(row.created_at),
-  };
 }
 
 export function getAllCategories(): Category[] {
-  const db = getDb();
-  const rows = db
-    .prepare("SELECT * FROM categories ORDER BY sort_order ASC, id ASC")
-    .all() as Record<string, unknown>[];
-  return rows.map(mapCategory);
+  const store = getStore();
+  return [...store.categories].sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.id - b.id
+  );
+}
+
+export function createCategoryRecord(input: {
+  name: string;
+  description?: string;
+  imageUrl?: string;
+}): Category {
+  const store = getStore();
+  const slug = input.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+
+  if (store.categories.some((c) => c.slug === slug)) {
+    throw new Error("Category already exists");
+  }
+
+  const created: Category = {
+    id: store.nextIds.category++,
+    slug,
+    name: input.name,
+    description: input.description || "",
+    imageUrl: input.imageUrl || "/images/dishes/andhra-thali.png",
+    sortOrder: 50,
+  };
+  store.categories.push(created);
+  persistStore(store);
+  return created;
 }
 
 export function getAllProducts(includeUnavailable = false): Product[] {
-  const db = getDb();
-  const sql = includeUnavailable
-    ? "SELECT * FROM products ORDER BY sort_order ASC, id ASC"
-    : "SELECT * FROM products WHERE is_available = 1 ORDER BY sort_order ASC, id ASC";
-  const rows = db.prepare(sql).all() as Record<string, unknown>[];
-  return rows.map(mapProduct);
+  const store = getStore();
+  const list = includeUnavailable
+    ? store.products
+    : store.products.filter((p) => p.isAvailable);
+  return [...list].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
 }
 
 export function getProductById(id: number): Product | null {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT * FROM products WHERE id = ?")
-    .get(id) as Record<string, unknown> | undefined;
-  return row ? mapProduct(row) : null;
+  const store = getStore();
+  return store.products.find((p) => p.id === id) || null;
 }
 
 export function getSignatureProducts(): Product[] {
-  const db = getDb();
-  const rows = db
-    .prepare(
-      "SELECT * FROM products WHERE is_signature = 1 AND is_available = 1 ORDER BY sort_order ASC, id ASC LIMIT 6"
-    )
-    .all() as Record<string, unknown>[];
-  return rows.map(mapProduct);
+  const store = getStore();
+  return store.products
+    .filter((p) => p.isSignature && p.isAvailable)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id)
+    .slice(0, 6);
+}
+
+export function createProductRecord(
+  input: Omit<Product, "id" | "slug" | "sortOrder" | "createdAt" | "updatedAt">
+): Product {
+  const store = getStore();
+  let slug = input.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  if (store.products.some((p) => p.slug === slug)) {
+    slug = `${slug}-${Date.now().toString().slice(-4)}`;
+  }
+
+  const now = new Date().toISOString();
+  const created: Product = {
+    ...input,
+    id: store.nextIds.product++,
+    slug,
+    sortOrder: 100,
+    createdAt: now,
+    updatedAt: now,
+  };
+  store.products.push(created);
+  persistStore(store);
+  return created;
+}
+
+export function updateProductRecord(
+  id: number,
+  updates: Partial<Omit<Product, "id" | "slug" | "createdAt">>
+): Product | null {
+  const store = getStore();
+  const idx = store.products.findIndex((p) => p.id === id);
+  if (idx === -1) return null;
+
+  store.products[idx] = {
+    ...store.products[idx],
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  };
+  persistStore(store);
+  return store.products[idx];
+}
+
+export function deleteProductRecord(id: number): boolean {
+  const store = getStore();
+  const before = store.products.length;
+  store.products = store.products.filter((p) => p.id !== id);
+  if (store.products.length === before) return false;
+  persistStore(store);
+  return true;
 }
 
 export function getSiteContent(): SiteContent {
-  const db = getDb();
-  const rows = db
-    .prepare("SELECT key, value_json FROM site_content")
-    .all() as { key: string; value_json: string }[];
-
-  const result: SiteContent = {
-    heroSlides: INITIAL_SITE_CONTENT.heroSlides,
-    services: INITIAL_SITE_CONTENT.services,
-    about: INITIAL_SITE_CONTENT.about,
-    testimonials: INITIAL_SITE_CONTENT.testimonials,
-    contact: INITIAL_SITE_CONTENT.contact,
-    deliveryConfig: {
-      ...INITIAL_SITE_CONTENT.deliveryConfig,
-      gatewayConfigured: Boolean(
-        process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
-      ),
-    },
-  };
-
-  for (const row of rows) {
-    try {
-      const parsed = JSON.parse(row.value_json);
-      if (row.key === "heroSlides") result.heroSlides = parsed;
-      else if (row.key === "services") result.services = parsed;
-      else if (row.key === "about") result.about = parsed;
-      else if (row.key === "testimonials") result.testimonials = parsed;
-      else if (row.key === "contact") result.contact = parsed;
-      else if (row.key === "deliveryConfig") {
-        result.deliveryConfig = {
-          ...parsed,
-          gatewayConfigured: Boolean(
-            process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
-          ),
-        };
-      }
-    } catch {
-      // ignore malformed JSON and fall back to defaults
-    }
+  try {
+    const store = getStore();
+    return {
+      ...store.siteContent,
+      deliveryConfig: {
+        ...store.siteContent.deliveryConfig,
+        gatewayConfigured: Boolean(
+          process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
+        ),
+      },
+    };
+  } catch (err) {
+    console.error("getSiteContent fallback:", err);
+    return INITIAL_SITE_CONTENT;
   }
-
-  return result;
 }
 
 export function updateSiteContentSection<K extends keyof SiteContent>(
   key: K,
   value: SiteContent[K]
 ): void {
-  const db = getDb();
-  const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO site_content (key, value_json, updated_at)
-     VALUES (?, ?, ?)
-     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`
-  ).run(key, JSON.stringify(value), now);
+  const store = getStore();
+  store.siteContent = {
+    ...store.siteContent,
+    [key]: value,
+  };
+  persistStore(store);
+}
+
+export function createOrderRecord(
+  input: Omit<Order, "id">
+): Order {
+  const store = getStore();
+  const created: Order = {
+    ...input,
+    id: store.nextIds.order++,
+  };
+  store.orders.unshift(created);
+  persistStore(store);
+  return created;
 }
 
 export function getOrderByRef(orderRef: string): Order | null {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT * FROM orders WHERE UPPER(order_ref) = UPPER(?)")
-    .get(orderRef.trim()) as Record<string, unknown> | undefined;
-  return row ? mapOrder(row) : null;
+  const store = getStore();
+  const normalized = orderRef.trim().toUpperCase();
+  return (
+    store.orders.find((o) => o.orderRef.toUpperCase() === normalized) || null
+  );
 }
 
 export function getAllOrders(): Order[] {
-  const db = getDb();
-  const rows = db
-    .prepare("SELECT * FROM orders ORDER BY id DESC")
-    .all() as Record<string, unknown>[];
-  return rows.map(mapOrder);
+  const store = getStore();
+  return [...store.orders].sort((a, b) => b.id - a.id);
+}
+
+export function updateOrderRecord(
+  id: number,
+  updates: {
+    orderStatus?: OrderStatus;
+    paymentStatus?: PaymentStatus;
+    estimatedTime?: string;
+  }
+): Order | null {
+  const store = getStore();
+  const idx = store.orders.findIndex((o) => o.id === id);
+  if (idx === -1) return null;
+
+  store.orders[idx] = {
+    ...store.orders[idx],
+    ...(updates.orderStatus ? { orderStatus: updates.orderStatus } : {}),
+    ...(updates.paymentStatus ? { paymentStatus: updates.paymentStatus } : {}),
+    ...(updates.estimatedTime !== undefined
+      ? { estimatedTime: updates.estimatedTime }
+      : {}),
+    updatedAt: new Date().toISOString(),
+  };
+  persistStore(store);
+  return store.orders[idx];
+}
+
+export function createReservationRecord(
+  input: Omit<TableReservation, "id">
+): TableReservation {
+  const store = getStore();
+  const created: TableReservation = {
+    ...input,
+    id: store.nextIds.reservation++,
+  };
+  store.reservations.unshift(created);
+  persistStore(store);
+  return created;
 }
 
 export function getAllReservations(): TableReservation[] {
-  const db = getDb();
-  const rows = db
-    .prepare("SELECT * FROM table_reservations ORDER BY id DESC")
-    .all() as Record<string, unknown>[];
-  return rows.map(mapReservation);
+  const store = getStore();
+  return [...store.reservations].sort((a, b) => b.id - a.id);
+}
+
+export function updateReservationStatus(
+  id: number,
+  status: TableReservation["status"]
+): boolean {
+  const store = getStore();
+  const target = store.reservations.find((r) => r.id === id);
+  if (!target) return false;
+  target.status = status;
+  persistStore(store);
+  return true;
+}
+
+export function createBanquetEnquiryRecord(
+  input: Omit<BanquetEnquiry, "id">
+): BanquetEnquiry {
+  const store = getStore();
+  const created: BanquetEnquiry = {
+    ...input,
+    id: store.nextIds.enquiry++,
+  };
+  store.enquiries.unshift(created);
+  persistStore(store);
+  return created;
 }
 
 export function getAllBanquetEnquiries(): BanquetEnquiry[] {
-  const db = getDb();
-  const rows = db
-    .prepare("SELECT * FROM banquet_enquiries ORDER BY id DESC")
-    .all() as Record<string, unknown>[];
-  return rows.map(mapEnquiry);
+  const store = getStore();
+  return [...store.enquiries].sort((a, b) => b.id - a.id);
+}
+
+export function updateBanquetEnquiryStatus(
+  id: number,
+  status: BanquetEnquiry["status"]
+): boolean {
+  const store = getStore();
+  const target = store.enquiries.find((e) => e.id === id);
+  if (!target) return false;
+  target.status = status;
+  persistStore(store);
+  return true;
+}
+
+export function createContactMessageRecord(
+  input: Omit<ContactMessageRecord, "id">
+): ContactMessageRecord {
+  const store = getStore();
+  const created: ContactMessageRecord = {
+    ...input,
+    id: store.nextIds.contact++,
+  };
+  store.contactMessages.unshift(created);
+  persistStore(store);
+  return created;
+}
+
+export function findAdminByUsername(username: string): AdminUserRecord | null {
+  const store = getStore();
+  return store.adminUsers.find((u) => u.username === username) || null;
+}
+
+export function createAdminSessionRecord(session: AdminSessionRecord): void {
+  const store = getStore();
+  const now = Date.now();
+  store.adminSessions = store.adminSessions.filter(
+    (s) => new Date(s.expiresAt).getTime() > now
+  );
+  store.adminSessions.push(session);
+  persistStore(store);
+}
+
+export function getAdminSessionWithUser(
+  tokenHash: string
+): { session: AdminSessionRecord; user: AdminUserRecord } | null {
+  const store = getStore();
+  const session = store.adminSessions.find((s) => s.tokenHash === tokenHash);
+  if (!session) return null;
+  if (new Date(session.expiresAt).getTime() <= Date.now()) {
+    store.adminSessions = store.adminSessions.filter(
+      (s) => s.tokenHash !== tokenHash
+    );
+    persistStore(store);
+    return null;
+  }
+  const user = store.adminUsers.find((u) => u.id === session.userId);
+  if (!user) return null;
+  return { session, user };
+}
+
+export function deleteAdminSessionByHash(tokenHash: string): void {
+  const store = getStore();
+  const before = store.adminSessions.length;
+  store.adminSessions = store.adminSessions.filter(
+    (s) => s.tokenHash !== tokenHash
+  );
+  if (store.adminSessions.length !== before) {
+    persistStore(store);
+  }
 }
 
 export function generateReference(prefix: string): string {
@@ -503,4 +517,3 @@ export function generateReference(prefix: string): string {
   const rand = crypto.randomBytes(2).toString("hex").toUpperCase();
   return `${prefix}-${datePart}-${rand}`;
 }
-

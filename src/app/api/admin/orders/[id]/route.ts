@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentAdmin } from "@/lib/auth";
-import { getDb } from "@/lib/db";
+import { updateOrderRecord } from "@/lib/db";
 import type { OrderStatus, PaymentStatus } from "@/lib/types";
 
 const ALLOWED_ORDER_STATUSES: OrderStatus[] = [
@@ -50,33 +50,17 @@ export async function PATCH(
       );
     }
 
-    const db = getDb();
-    const existing = db
-      .prepare("SELECT id, order_status, payment_status, estimated_time FROM orders WHERE id = ?")
-      .get(Number(id)) as
-      | {
-          id: number;
-          order_status: string;
-          payment_status: string;
-          estimated_time: string;
-        }
-      | undefined;
+    const updated = updateOrderRecord(Number(id), {
+      orderStatus,
+      paymentStatus,
+      estimatedTime,
+    });
 
-    if (!existing) {
+    if (!updated) {
       return NextResponse.json({ error: "Order not found." }, { status: 404 });
     }
 
-    db.prepare(
-      "UPDATE orders SET order_status = ?, payment_status = ?, estimated_time = ?, updated_at = ? WHERE id = ?"
-    ).run(
-      orderStatus || existing.order_status,
-      paymentStatus || existing.payment_status,
-      estimatedTime !== undefined ? estimatedTime : existing.estimated_time,
-      new Date().toISOString(),
-      Number(id)
-    );
-
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, order: updated });
   } catch (error) {
     console.error("PATCH /api/admin/orders/[id] error:", error);
     return NextResponse.json(
@@ -85,4 +69,3 @@ export async function PATCH(
     );
   }
 }
-

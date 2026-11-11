@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateReference, getDb } from "@/lib/db";
+import { createBanquetEnquiryRecord, generateReference } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   try {
@@ -67,14 +67,7 @@ export async function POST(req: NextRequest) {
     const enquiryRef = generateReference("BNQ");
     const now = new Date().toISOString();
 
-    const db = getDb();
-    db.prepare(
-      `INSERT INTO banquet_enquiries (
-        enquiry_ref, customer_name, phone, email,
-        event_type, event_date, guest_count,
-        requirements, message, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
+    const enquiry = createBanquetEnquiryRecord({
       enquiryRef,
       customerName,
       phone,
@@ -84,21 +77,13 @@ export async function POST(req: NextRequest) {
       guestCount,
       requirements,
       message,
-      "New",
-      now
-    );
+      status: "New",
+      createdAt: now,
+    });
 
     return NextResponse.json(
       {
-        enquiry: {
-          enquiryRef,
-          customerName,
-          eventType,
-          eventDate,
-          guestCount,
-          status: "New",
-          createdAt: now,
-        },
+        enquiry,
         message:
           "Banquet enquiry submitted. Our events coordinator will contact you to confirm hall availability and custom menu packages.",
       },
@@ -112,4 +97,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

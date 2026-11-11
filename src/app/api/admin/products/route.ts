@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentAdmin } from "@/lib/auth";
-import { getAllCategories, getAllProducts, getDb } from "@/lib/db";
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
+import {
+  createProductRecord,
+  getAllCategories,
+  getAllProducts,
+} from "@/lib/db";
 
 export async function GET() {
   const admin = await getCurrentAdmin();
@@ -59,43 +56,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const db = getDb();
-    let slug = slugify(name);
-    const existing = db
-      .prepare("SELECT id FROM products WHERE slug = ?")
-      .get(slug);
-    if (existing) {
-      slug = `${slug}-${Date.now().toString().slice(-4)}`;
-    }
-
-    const now = new Date().toISOString();
-    const result = db
-      .prepare(
-        `INSERT INTO products (
-          slug, name, description, price, category_slug, veg_type,
-          image_url, is_available, is_signature, variants_json, spice_level,
-          sort_order, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        slug,
-        name,
-        description,
-        price,
-        categorySlug,
-        vegType,
-        imageUrl || "/images/dishes/chicken-biryani.png",
-        isAvailable ? 1 : 0,
-        isSignature ? 1 : 0,
-        JSON.stringify(variants),
-        spiceLevel,
-        100,
-        now,
-        now
-      );
+    const created = createProductRecord({
+      name,
+      description,
+      price,
+      categorySlug,
+      vegType,
+      imageUrl: imageUrl || "/images/dishes/chicken-biryani.png",
+      isAvailable,
+      isSignature,
+      variants,
+      spiceLevel,
+    });
 
     return NextResponse.json(
-      { id: Number(result.lastInsertRowid), slug },
+      { id: created.id, slug: created.slug, product: created },
       { status: 201 }
     );
   } catch (error) {
@@ -106,4 +81,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentAdmin } from "@/lib/auth";
-import { getAllReservations, getDb } from "@/lib/db";
+import { getAllReservations, updateReservationStatus } from "@/lib/db";
+import type { TableReservation } from "@/lib/types";
 
-const ALLOWED = ["Pending", "Confirmed", "Completed", "Cancelled"];
+const ALLOWED: TableReservation["status"][] = [
+  "Pending",
+  "Confirmed",
+  "Completed",
+  "Cancelled",
+];
 
 export async function GET() {
   const admin = await getCurrentAdmin();
@@ -21,7 +27,7 @@ export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
     const id = Number(body.id);
-    const status = String(body.status || "");
+    const status = String(body.status || "") as TableReservation["status"];
     if (!id || !ALLOWED.includes(status)) {
       return NextResponse.json(
         { error: "Invalid reservation ID or status." },
@@ -29,11 +35,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const db = getDb();
-    db.prepare("UPDATE table_reservations SET status = ? WHERE id = ?").run(
-      status,
-      id
-    );
+    updateReservationStatus(id, status);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("PATCH /api/admin/reservations error:", error);
@@ -43,4 +45,3 @@ export async function PATCH(req: NextRequest) {
     );
   }
 }
-

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateReference, getDb } from "@/lib/db";
+import { createReservationRecord, generateReference } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   try {
@@ -58,7 +58,10 @@ export async function POST(req: NextRequest) {
 
     if (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > 40) {
       return NextResponse.json(
-        { error: "Guest count must be between 1 and 40 for table reservations. For larger events, please submit a Banquet Enquiry." },
+        {
+          error:
+            "Guest count must be between 1 and 40 for table reservations. For larger events, please submit a Banquet Enquiry.",
+        },
         { status: 400 }
       );
     }
@@ -66,14 +69,7 @@ export async function POST(req: NextRequest) {
     const reservationRef = generateReference("TBL");
     const now = new Date().toISOString();
 
-    const db = getDb();
-    db.prepare(
-      `INSERT INTO table_reservations (
-        reservation_ref, customer_name, phone, email,
-        reservation_date, reservation_time, guest_count,
-        special_requests, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
+    const reservation = createReservationRecord({
       reservationRef,
       customerName,
       phone,
@@ -82,21 +78,13 @@ export async function POST(req: NextRequest) {
       reservationTime,
       guestCount,
       specialRequests,
-      "Pending",
-      now
-    );
+      status: "Pending",
+      createdAt: now,
+    });
 
     return NextResponse.json(
       {
-        reservation: {
-          reservationRef,
-          customerName,
-          reservationDate,
-          reservationTime,
-          guestCount,
-          status: "Pending",
-          createdAt: now,
-        },
+        reservation,
         message:
           "Reservation request received. Our hospitality desk will call you shortly to confirm table availability.",
       },
@@ -110,4 +98,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

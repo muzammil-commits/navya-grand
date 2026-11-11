@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentAdmin } from "@/lib/auth";
-import { getDb, getProductById } from "@/lib/db";
+import {
+  deleteProductRecord,
+  getProductById,
+  updateProductRecord,
+} from "@/lib/db";
 
 export async function PATCH(
   req: NextRequest,
@@ -62,29 +66,20 @@ export async function PATCH(
       );
     }
 
-    const db = getDb();
-    db.prepare(
-      `UPDATE products SET
-        name = ?, description = ?, price = ?, category_slug = ?,
-        veg_type = ?, image_url = ?, is_available = ?, is_signature = ?,
-        variants_json = ?, spice_level = ?, updated_at = ?
-       WHERE id = ?`
-    ).run(
+    const updated = updateProductRecord(productId, {
       name,
       description,
       price,
       categorySlug,
       vegType,
       imageUrl,
-      isAvailable ? 1 : 0,
-      isSignature ? 1 : 0,
-      JSON.stringify(variants),
+      isAvailable,
+      isSignature,
+      variants,
       spiceLevel,
-      new Date().toISOString(),
-      productId
-    );
+    });
 
-    return NextResponse.json({ product: getProductById(productId) });
+    return NextResponse.json({ product: updated });
   } catch (error) {
     console.error("PATCH /api/admin/products/[id] error:", error);
     return NextResponse.json(
@@ -105,11 +100,8 @@ export async function DELETE(
 
   try {
     const { id } = await context.params;
-    const db = getDb();
-    const res = db
-      .prepare("DELETE FROM products WHERE id = ?")
-      .run(Number(id));
-    if (res.changes === 0) {
+    const deleted = deleteProductRecord(Number(id));
+    if (!deleted) {
       return NextResponse.json({ error: "Product not found." }, { status: 404 });
     }
     return NextResponse.json({ success: true });
@@ -121,4 +113,3 @@ export async function DELETE(
     );
   }
 }
-

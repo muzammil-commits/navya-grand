@@ -5,7 +5,7 @@ import {
   SESSION_TTL_MS,
   verifyPassword,
 } from "@/lib/auth";
-import { getDb } from "@/lib/db";
+import { findAdminByUsername } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,38 +20,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const db = getDb();
-    const user = db
-      .prepare(
-        "SELECT id, username, password_hash, full_name, role FROM admin_users WHERE username = ?"
-      )
-      .get(username) as
-      | {
-          id: number;
-          username: string;
-          password_hash: string;
-          full_name: string;
-          role: string;
-        }
-      | undefined;
-
-    if (!user || !verifyPassword(password, user.password_hash)) {
+    const user = findAdminByUsername(username);
+    if (!user || !verifyPassword(password, user.passwordHash)) {
       return NextResponse.json(
         { error: "Invalid username or password." },
         { status: 401 }
       );
     }
 
-    const { rawToken } = createAdminSession(user.id);
-    const res = NextResponse.json({
-      user: {
-        userId: user.id,
-        username: user.username,
-        fullName: user.full_name,
-        role: user.role,
-      },
-    });
+    const sessionPayload = {
+      userId: user.id,
+      username: user.username,
+      fullName: user.fullName,
+      role: user.role,
+    };
+    const { rawToken } = createAdminSession(sessionPayload);
 
+    const res = NextResponse.json({ user: sessionPayload });
     res.cookies.set(SESSION_COOKIE_NAME, rawToken, {
       httpOnly: true,
       sameSite: "lax",
@@ -69,4 +54,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

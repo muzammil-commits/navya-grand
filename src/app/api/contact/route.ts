@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { createContactMessageRecord } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,11 +32,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const db = getDb();
-    db.prepare(
-      `INSERT INTO contact_messages (name, phone, email, subject, message, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(name, phone, email, subject, message, new Date().toISOString());
+    createContactMessageRecord({
+      name,
+      phone,
+      email,
+      subject,
+      message,
+      createdAt: new Date().toISOString(),
+    });
 
     return NextResponse.json(
       {
@@ -53,4 +56,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

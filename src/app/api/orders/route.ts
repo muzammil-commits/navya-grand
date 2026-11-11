@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  createOrderRecord,
   generateReference,
-  getDb,
   getProductById,
   getSiteContent,
 } from "@/lib/db";
@@ -194,9 +194,9 @@ export async function POST(req: NextRequest) {
       orderType === "delivery" && subtotal < deliveryConfig.freeDeliveryAbove
         ? deliveryConfig.deliveryFee
         : 0;
-    const taxAmount = Math.round(
-      ((subtotal * deliveryConfig.taxRatePercent) / 100) * 100
-    ) / 100;
+    const taxAmount =
+      Math.round(((subtotal * deliveryConfig.taxRatePercent) / 100) * 100) /
+      100;
     const discountAmount = 0;
     const totalAmount =
       Math.round((subtotal + deliveryCharge + taxAmount - discountAmount) * 100) /
@@ -205,8 +205,6 @@ export async function POST(req: NextRequest) {
     let paymentStatus: PaymentStatus = "pending";
     if (paymentMethod === "upi") {
       paymentStatus = "awaiting_verification";
-    } else if (paymentMethod === "gateway") {
-      paymentStatus = "pending";
     }
 
     const orderRef = generateReference("NG");
@@ -216,27 +214,21 @@ export async function POST(req: NextRequest) {
         ? "35–45 mins (subject to kitchen confirmation)"
         : "20–30 mins (subject to kitchen confirmation)";
 
-    const db = getDb();
-    db.prepare(
-      `INSERT INTO orders (
-        order_ref, customer_name, phone, email, order_type,
-        address, landmark, city, pincode, instructions,
-        items_json, subtotal, delivery_charge, tax_amount, discount_amount, total_amount,
-        payment_method, payment_status, payment_ref, order_status, estimated_time,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
+    const order = createOrderRecord({
       orderRef,
       customerName,
       phone,
       email,
       orderType,
-      orderType === "delivery" ? address : "Restaurant Counter Pickup (Vidyanagar Main Road, Guntur)",
+      address:
+        orderType === "delivery"
+          ? address
+          : "Restaurant Counter Pickup (Vidyanagar Main Road, Guntur)",
       landmark,
-      city || "Guntur",
-      orderType === "delivery" ? pincode : "522007",
+      city: city || "Guntur",
+      pincode: orderType === "delivery" ? pincode : "522007",
       instructions,
-      JSON.stringify(verifiedItems),
+      items: verifiedItems,
       subtotal,
       deliveryCharge,
       taxAmount,
@@ -245,42 +237,13 @@ export async function POST(req: NextRequest) {
       paymentMethod,
       paymentStatus,
       paymentRef,
-      "Order Placed",
+      orderStatus: "Order Placed",
       estimatedTime,
-      now,
-      now
-    );
+      createdAt: now,
+      updatedAt: now,
+    });
 
-    return NextResponse.json(
-      {
-        order: {
-          orderRef,
-          customerName,
-          phone,
-          email,
-          orderType,
-          address:
-            orderType === "delivery"
-              ? address
-              : "Restaurant Counter Pickup (Vidyanagar Main Road, Guntur)",
-          city: city || "Guntur",
-          pincode: orderType === "delivery" ? pincode : "522007",
-          items: verifiedItems,
-          subtotal,
-          deliveryCharge,
-          taxAmount,
-          discountAmount,
-          totalAmount,
-          paymentMethod,
-          paymentStatus,
-          paymentRef,
-          orderStatus: "Order Placed",
-          estimatedTime,
-          createdAt: now,
-        },
-      },
-      { status: 201 }
-    );
+    return NextResponse.json({ order }, { status: 201 });
   } catch (error) {
     console.error("POST /api/orders error:", error);
     return NextResponse.json(
@@ -289,4 +252,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
